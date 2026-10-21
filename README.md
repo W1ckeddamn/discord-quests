@@ -46,19 +46,23 @@ The repository provides two execution methods:
 
 ### Method 1: Automated Injection (Persistent)
 
-This method patches the Discord desktop bootstrap loader to execute the quest runner 6 seconds after client startup.
+This method patches the Discord desktop bootstrap loader (`discord_desktop_core/index.js`) to execute the quest runner 6 seconds after client startup.
+
+> [!IMPORTANT]
+> **Discord must be completely closed.**
+> The script modifies the Electron main process bootstrap script. A window refresh (`Ctrl + R`) is **not** sufficient, as `index.js` executes only when Discord launches initially from scratch. The installer automatically terminates running `Discord.exe` processes before patching. Ensure Discord is relaunched afterward.
 
 #### 1. Installation
 Run the installer script:
 ```bash
 python discord_injector.py
 ```
-Or with specific Python interpreter:
+Or with the Windows Python launcher:
 ```bash
 py discord_injector.py
 ```
 
-After the patch is applied, restart Discord (`Ctrl + R` or close and relaunch).
+Launch Discord normally once the installer finishes.
 
 #### 2. Uninstallation / Rollback
 To restore Discord to its pristine, unmodified state:
@@ -66,6 +70,8 @@ To restore Discord to its pristine, unmodified state:
 python discord_injector.py uninstall
 ```
 *(Accepts `uninstall`, `remove`, or `-u`)*
+
+Relaunch Discord after rollback.
 
 ---
 

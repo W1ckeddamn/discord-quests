@@ -4,6 +4,7 @@ import glob
 import json
 import shutil
 import logging
+import subprocess
 from pathlib import Path
 
 logging.basicConfig(
@@ -13,6 +14,20 @@ logging.basicConfig(
 
 PROJECT_DIR = Path(__file__).resolve().parent
 COMPLETER_SCRIPT_PATH = PROJECT_DIR / "discord_quest_completer.js"
+
+
+def close_discord():
+    """Terminates Discord processes to release file locks and ensure full reload of core module."""
+    try:
+        res = subprocess.run(
+            ["taskkill", "/F", "/IM", "Discord.exe"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        if res.returncode == 0:
+            logging.info("Все запущенные процессы Discord успешно завершены.")
+    except Exception:
+        pass
 
 
 def find_core_index_files():
@@ -59,6 +74,9 @@ def install():
         logging.error("Не найден модуль discord_desktop_core. Убедитесь, что Discord установлен.")
         return False
 
+    # Завершаем процессы Discord перед модификацией файлов
+    close_discord()
+
     new_content = generate_injected_index_js(script_content)
 
     for index_path in index_files:
@@ -81,7 +99,9 @@ def install():
     print(" 1. Через 6 секунд после входа в аккаунт скрипт сам запустится.")
     print(" 2. Сам активирует все новые квесты.")
     print(" 3. Сам эмулирует все игры и заберет награды!")
-    print("\nДля применения просто перезапустите Discord (Ctrl + R).")
+    print("\nВАЖНО: Запустите Discord заново (полный запуск приложения).")
+    print("Простой перезагрузки окна (Ctrl + R) недостаточно, так как патч")
+    print("работает на уровне главного процесса Electron.")
     return True
 
 
@@ -90,6 +110,9 @@ def uninstall():
     if not index_files:
         logging.error("Не найден модуль discord_desktop_core.")
         return False
+
+    # Завершаем процессы Discord перед восстановлением файлов
+    close_discord()
 
     restored = 0
     for index_path in index_files:
