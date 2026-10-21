@@ -29,7 +29,6 @@ The repository provides two execution methods:
 ```
 ├── discord_injector.py         # Automated core installer and uninstaller
 ├── discord_quest_completer.js  # Client-side Discord automation script
-├── discord_quests.json         # Reference schema / API dump of Discord quest data
 └── README.md                   # Technical documentation
 ```
 
