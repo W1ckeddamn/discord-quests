@@ -48,12 +48,24 @@ const QUEST_SCRIPT = {json_escaped_script};
 let injected = false;
 app.on('browser-window-created', (event, win) => {{
     win.webContents.on('dom-ready', () => {{
-        // Ждем 6 секунд после загрузки интерфейса, чтобы Discord успел инициализировать Webpack и QuestsStore
-        setTimeout(() => {{
-            win.webContents.executeJavaScript(QUEST_SCRIPT)
-                .then(() => console.log('[QuestInjector] Script successfully injected!'))
-                .catch(err => console.error('[QuestInjector] Injection error:', err));
-        }}, 6000);
+        // Проверяем готовность webpackChunkdiscord_app перед инъекцией
+        const checkAndInject = (attempt = 0) => {{
+            if (attempt > 40) return;
+            win.webContents.executeJavaScript('typeof webpackChunkdiscord_app !== "undefined"')
+                .then(isReady => {{
+                    if (isReady) {{
+                        setTimeout(() => {{
+                            win.webContents.executeJavaScript(QUEST_SCRIPT)
+                                .then(() => console.log('[QuestInjector] Script successfully injected!'))
+                                .catch(err => console.error('[QuestInjector] Injection error:', err));
+                        }}, 4000);
+                    }} else {{
+                        setTimeout(() => checkAndInject(attempt + 1), 2000);
+                    }}
+                }})
+                .catch(() => setTimeout(() => checkAndInject(attempt + 1), 2000));
+        }};
+        setTimeout(checkAndInject, 2000);
     }});
 }});
 
