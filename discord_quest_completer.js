@@ -1,5 +1,5 @@
 // ==============================================================================
-// Discord Quest Multi-Completer v2.3 (Fixed excludedQuests dispatch & sync)
+// Discord Quest Multi-Completer v2.4 (Direct API & Zero-Conflict Store Sync)
 // ==============================================================================
 // Как запустить вручную:
 // 1. Откройте приложение Discord на ПК.
@@ -31,15 +31,6 @@
         || modules.find(x => x?.exports?.default?.get && x?.exports?.default?.post)?.exports?.default
         || modules.find(x => x?.exports?.get && x?.exports?.post)?.exports;
 
-    let questActionModule = modules.find(x => 
-        typeof x?.exports?.fetchCurrentQuests === 'function' || 
-        typeof x?.exports?.default?.fetchCurrentQuests === 'function' ||
-        typeof x?.exports?.fetchQuests === 'function'
-    );
-    let fetchCurrentQuests = questActionModule?.exports?.fetchCurrentQuests 
-        || questActionModule?.exports?.default?.fetchCurrentQuests
-        || questActionModule?.exports?.fetchQuests;
-
     if (!QuestsStore || !RunningGameStore || !FluxDispatcher || !api) {
         console.error("[-] Не удалось найти внутренние модули Discord. Убедитесь, что запускаете в Discord Desktop.");
         return;
@@ -62,43 +53,35 @@
 
     console.log("%c[⏳] Синхронизация и загрузка актуальных квестов...", "color: #00d0ff; font-weight: bold; font-size: 13px;");
 
-    // 1. Цикл ожидания и принудительной синхронизации квестов
+    // 1. Цикл ожидания и прямой синхронизации квестов
     let allQuests = [];
     const maxAttempts = 15;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        // Пробуем вызвать нативный action Discord
-        if (typeof fetchCurrentQuests === "function") {
-            try {
-                await fetchCurrentQuests();
-            } catch (_) {}
-        }
-
         let rawList = [];
 
-        // Принудительно запрашиваем квесты через встроенный API Discord
+        // Запрашиваем квесты напрямую через встроенный HTTP-клиент Discord
         try {
             const res = await api.get({ url: "/quests/@me" });
             if (res.body?.quests && res.body.quests.length > 0) {
                 rawList = res.body.quests;
-                try {
-                    const excludedList = (res.body.excluded_quests || []).map(x => x?.id ?? x);
-                    FluxDispatcher.dispatch({
-                        type: "QUESTS_FETCH_CURRENT_QUESTS_SUCCESS",
-                        quests: res.body.quests || [],
-                        excludedQuests: excludedList,
-                        questEnrollmentBlockedUntil: res.body.quest_enrollment_blocked_until ?? null,
-                        questAccessSuspendedUntil: res.body.quest_access_suspended_until ?? null
-                    });
-                } catch (_) {}
             }
         } catch (e) {
             // API клиента может еще авторизоваться при старте
         }
 
-        // Если API не вернул, но в QuestsStore уже есть квесты
+        // Если API еще не вернул, но в QuestsStore уже есть квесты
         if (rawList.length === 0 && QuestsStore?.quests && QuestsStore.quests.size > 0) {
             rawList = [...QuestsStore.quests.values()];
+        }
+
+        // Безопасно наполняем QuestsStore для внутренних проверок Discord
+        if (rawList.length > 0 && QuestsStore?.quests instanceof Map) {
+            for (const q of rawList) {
+                if (!QuestsStore.quests.has(q.id)) {
+                    QuestsStore.quests.set(q.id, q);
+                }
+            }
         }
 
         const now = Date.now();
