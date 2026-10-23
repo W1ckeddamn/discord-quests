@@ -1,5 +1,5 @@
 // ==============================================================================
-// Discord Quest Multi-Completer v2.2 (Auto-fetch, retry sync & robust task support)
+// Discord Quest Multi-Completer v2.3 (Fixed excludedQuests dispatch & sync)
 // ==============================================================================
 // Как запустить вручную:
 // 1. Откройте приложение Discord на ПК.
@@ -31,6 +31,15 @@
         || modules.find(x => x?.exports?.default?.get && x?.exports?.default?.post)?.exports?.default
         || modules.find(x => x?.exports?.get && x?.exports?.post)?.exports;
 
+    let questActionModule = modules.find(x => 
+        typeof x?.exports?.fetchCurrentQuests === 'function' || 
+        typeof x?.exports?.default?.fetchCurrentQuests === 'function' ||
+        typeof x?.exports?.fetchQuests === 'function'
+    );
+    let fetchCurrentQuests = questActionModule?.exports?.fetchCurrentQuests 
+        || questActionModule?.exports?.default?.fetchCurrentQuests
+        || questActionModule?.exports?.fetchQuests;
+
     if (!QuestsStore || !RunningGameStore || !FluxDispatcher || !api) {
         console.error("[-] Не удалось найти внутренние модули Discord. Убедитесь, что запускаете в Discord Desktop.");
         return;
@@ -48,6 +57,8 @@
         return exp ? new Date(exp).getTime() : 0;
     };
     const getTrafficMetadata = (q) => q?.trafficMetadataSealed ?? q?.traffic_metadata_sealed ?? null;
+    const getAppId = (q) => q?.config?.application?.id ?? getTasks(q)?.PLAY_ON_DESKTOP?.applications?.[0]?.id;
+    const getAppName = (q) => q?.config?.application?.name ?? getQuestName(q);
 
     console.log("%c[⏳] Синхронизация и загрузка актуальных квестов...", "color: #00d0ff; font-weight: bold; font-size: 13px;");
 
@@ -56,14 +67,28 @@
     const maxAttempts = 15;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        // Пробуем вызвать нативный action Discord
+        if (typeof fetchCurrentQuests === "function") {
+            try {
+                await fetchCurrentQuests();
+            } catch (_) {}
+        }
+
+        let rawList = [];
+
         // Принудительно запрашиваем квесты через встроенный API Discord
         try {
             const res = await api.get({ url: "/quests/@me" });
             if (res.body?.quests && res.body.quests.length > 0) {
+                rawList = res.body.quests;
                 try {
+                    const excludedList = (res.body.excluded_quests || []).map(x => x?.id ?? x);
                     FluxDispatcher.dispatch({
                         type: "QUESTS_FETCH_CURRENT_QUESTS_SUCCESS",
-                        quests: res.body.quests
+                        quests: res.body.quests || [],
+                        excludedQuests: excludedList,
+                        questEnrollmentBlockedUntil: res.body.quest_enrollment_blocked_until ?? null,
+                        questAccessSuspendedUntil: res.body.quest_access_suspended_until ?? null
                     });
                 } catch (_) {}
             }
@@ -71,8 +96,8 @@
             // API клиента может еще авторизоваться при старте
         }
 
-        let rawList = [];
-        if (QuestsStore?.quests && QuestsStore.quests.size > 0) {
+        // Если API не вернул, но в QuestsStore уже есть квесты
+        if (rawList.length === 0 && QuestsStore?.quests && QuestsStore.quests.size > 0) {
             rawList = [...QuestsStore.quests.values()];
         }
 
@@ -172,9 +197,9 @@
 
     for (const q of playQuests) {
         const tasks = getTasks(q);
-        const appId = q.config?.application?.id ?? tasks.PLAY_ON_DESKTOP?.applications?.[0]?.id;
+        const appId = getAppId(q);
         const qName = getQuestName(q);
-        const fallbackName = q.config?.application?.name ?? qName;
+        const fallbackName = getAppName(q);
 
         let appInfo = null;
         try {
@@ -209,7 +234,7 @@
         questMap.set(q.id, {
             quest: q,
             game: gameObj,
-            target: tasks.PLAY_ON_DESKTOP.target,
+            target: tasks.PLAY_ON_DESKTOP?.target ?? 900,
             completed: false
         });
         console.log(`  -> Добавлена игра: ${gameName} ("${qName}")`);
@@ -239,7 +264,8 @@
         const item = questMap.get(qid);
         if (!item || item.completed) return;
 
-        const configVer = item.quest.config?.configVersion ?? item.quest.config?.config_version;
+        const questConfig = item.quest?.config ?? {};
+        const configVer = questConfig.configVersion ?? questConfig.config_version;
         let progress = configVer === 1 
             ? (userStatus.streamProgressSeconds ?? userStatus.stream_progress_seconds ?? 0)
             : Math.floor(userStatus.progress?.PLAY_ON_DESKTOP?.value ?? 0);
